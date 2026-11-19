@@ -6,54 +6,39 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import csv
 import os
-from qiskit import transpile
 from qiskit_aer import AerSimulator
 from qiskit_ibm_runtime.fake_provider import FakeFez
 # Import Tim's compare_fez
 import compare_fez
 
 
-def run_experiment(circuit_type, num_gates, shots, seed, backend, ideal_sim):
+GATE_SET = "x"
+MIRROR = False
 
-    gate_set = getattr(compare_fez, "GATE_SET", "x")
-    circuit_fn = compare_fez.CIRCUIT_FUNCTIONS.get(
-        gate_set, compare_fez.x_gates
+def run_experiment(circuit_type, num_gates, shots, seed, backend, ideal_sim,layouts):
+    base_qc = compare_fez.test_circuit(
+        gate_set=GATE_SET, num_gates=num_gates, seed=seed, mirror=MIRROR
     )
 
-    base_qc = circuit_fn(num_gates, seed)
-
-    if getattr(compare_fez, "MIRROR", False):
-        base_qc = compare_fez.mirrored(base_qc)
-
-    # Resolve encoder mapping dynamically from compare_fez
-    encoders = compare_fez.ENCODERS.copy()
+    plain = base_qc.copy()
+    plain.measure_all()
 
     if circuit_type == "unencoded":
-        qc = base_qc.copy()
-        qc.measure_all()
+        circuits, _ = compare_fez.on_fez(plain, {}, backend, layouts, seed)
+        t_noisy = circuits[f"no correction (Fez {layouts['bit/phase-flip'][0]})"]
     else:
-        encoder_fn = encoders[circuit_type]
-        qc = encoder_fn(base_qc)
-
-    # Transpiling parameters matching Tim's exact Fez setup
-    transpile_options = dict(
-        optimization_level=0,
-        routing_method="sabre",
-        seed_transpiler=seed,
-        basis_gates=list(backend.target.operation_names),
-        coupling_map=compare_fez.working_coupling_map(backend),
-    )
+        encoded = {circuit_type: compare_fez.CODES[circuit_type](base_qc)}
+        circuits, _ = compare_fez.on_fez(plain, encoded, backend, layouts, seed)
+        t_noisy = circuits[circuit_type]
 
     # 1. Ideal run
-    t_ideal = transpile(qc, ideal_sim, optimization_level=0)
     ideal_counts = (
-        ideal_sim.run(t_ideal, shots=shots, seed_simulator=seed)
+        ideal_sim.run(plain, shots=shots, seed_simulator=seed)
         .result()
         .get_counts()
     )
 
     # 2. Noisy run
-    t_noisy = transpile(qc, backend, **transpile_options)
     noisy_sim = AerSimulator.from_backend(backend)
     noisy_counts = (
         noisy_sim.run(t_noisy, shots=shots, seed_simulator=seed)
@@ -62,12 +47,12 @@ def run_experiment(circuit_type, num_gates, shots, seed, backend, ideal_sim):
     )
 
     # Extract output bit probabilities using Tim's syndrome parser
-    ones_ideal, total_ideal = compare_fez.prob_one(ideal_counts)
-    ideal_p1 = ones_ideal / total_ideal
+    ones_ideal, _ = compare_fez.prob_one(ideal_counts)
+    ideal_p1 = ones_ideal / shots
     ideal_p0 = 1.0 - ideal_p1
 
-    ones_noisy, total_noisy = compare_fez.prob_one(noisy_counts)
-    observed_p1 = ones_noisy / total_noisy
+    ones_noisy, _ = compare_fez.prob_one(noisy_counts)
+    observed_p1 = ones_noisy / shots
     observed_p0 = 1.0 - observed_p1
 
     # Tim's output-probability difference error metric
@@ -102,30 +87,29 @@ def main():
         "error_metric",
     ]
 
+    os.makedirs(os.path.dirname(csv_filename), exist_ok=True)
     backend = FakeFez()
     ideal_sim = AerSimulator()
+    layouts = compare_fez.set_layout(backend)
 
-    # Tested circuit types matching compare_fez encoder keys
+    # Tested circuit types matching compare_fez.CODES keys
     circuit_types = ["unencoded"] + [
-        k for k in compare_fez.ENCODERS.keys() if "if blocks" in k
+        k for k in compare_fez.CODES.keys() if "if blocks" in k
     ]
     gate_counts = [10, 50, 100, 500]  # different circuit lengths
     shot_counts = [10000]  # 10,000 simulations
-    seeds = [3, 50, 100]  #(At least 3 seeds)
+    seeds = [3, 50, 100]  # (At least 3 seeds)
 
-    file_exists = os.path.isfile(csv_filename)
-
-    with open(csv_filename, mode="a", newline="") as file:
+    with open(csv_filename, mode="w", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=headers)
-        if not file_exists:
-            writer.writeheader()
+        writer.writeheader()
 
         for c_type in circuit_types:
             for gates in gate_counts:
                 for shots in shot_counts:
                     for seed in seeds:
                         res = run_experiment(
-                            c_type, gates, shots, seed, backend, ideal_sim
+                            c_type, gates, shots, seed, backend, ideal_sim, layouts
                         )
                         writer.writerow(res)
                         print(f"Recorded: {res['circuit_type']:<22} | Gates: {res['num_gates']:<3} | Seed: {res['random_seed']:<3} | Error: {res['error_metric']}")

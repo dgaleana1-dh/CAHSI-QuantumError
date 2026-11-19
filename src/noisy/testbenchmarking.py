@@ -50,9 +50,9 @@ def main():
                         show=False
                     )
 
-                # Iterate through results and write rows to CSV
-                for run_name, error_val in results_dict.items():
-                    row = {
+                    # Iterate through results and write rows to CSV
+                    for run_name, error_val in results_dict.items():
+                        row = {
                         "gate_set": g_set,  
                         "circuit_type": run_name,
                         "num_gates": gates,

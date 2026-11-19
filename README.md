@@ -358,3 +358,48 @@ These results won't come back the same from the current code and settings:
 - `src/pay_off/csvs/pay_off.csv` and `src/pay_off/csvs/pay_off_points.csv` are an older Washington run, measured on qubit 51. Washington is now measured on qubit 54.
 - In `src/qubit_mapping/`, only the files named `mapping_sweep_y_500` come from the current script. `mapping_sweep_x.csv`, `mapping_sweep_y.csv`, `mapping_sweep_repeat.csv`, `mapping_sweep_id.csv` and `mapping_sweep_summary.csv`, and the plots with those names and `mapping_sweep_shares.png`, are from an earlier version of `mapping_sweep.py`. It ran each gate set at 0, 50, 100, 200, 500 and 1000 gates, with no correction on 154 of Fez's qubits.
 - `src/real_hardware_runs/` ran on the real machine, whose noise changes over time.
+
+# Quantum Error Correction Benchmarking
+
+This repository benchmarks quantum error-correction (QEC) codes against an unencoded baseline on IBM's simulated `FakeFez` quantum processor using Qiskit and `AerSimulator`. It measures how effectively different error-correction schemes preserve a logical quantum state as circuit depth and hardware noise increase.
+
+### `benchmarking_csv.py`
+`benchmarking_csv.py` runs full cross-code and circuit-depth sweeps on the simulated `FakeFez` backend and exports the results to CSV:
+
+* **Codes & Baseline (`CODES`):** Evaluates quantum error-correction codes—such as the 5-qubit bit-flip code, 5-qubit phase-flip code, and 17-qubit Shor code against an unencoded 1-qubit baseline imported from `compare_fez.py`.
+* **Dynamic Mid-Circuit Correction (`if` blocks):** Syndrome ancilla qubits are measured mid circuit between gate layers, and conditional `if` blocks dynamically apply corrective $X$ or $Z$ gates whenever an error syndrome is detected.
+* **Hardware-Pinned Transpilation (`set_layout` & `on_fez`):** Because physical qubits on a superconducting chip have varying noise levels and gate fidelities, `set_layout()` locks every QEC code and the unencoded baseline onto the exact same physical qubits on `FakeFez` so results reflect the code's performance rather than qubit placement.
+* **Parameter Sweep & CSV Export:** Iterates across circuit types (`"unencoded"` and `"if blocks"` variants), gate depths (`10`, `50`, `100`, `500`), shot counts, and simulator seeds. Each circuit is executed via `compare_fez.test_circuit()`, logical measurement probabilities are calculated with `prob_one()`, and all trial metrics are saved to a CSV file
+
+* **Multiseed Execution:** Executes benchmark trials across 3 independent random simulator seeds under `FakeFez` hardware noise.
+* **Seed Logging:** Writes the measurement results of each indvidual seed to CSV so run to run variance and average can be evaluated across seeds.
+
+## Prerequisites
+
+Install Python 3 along with Qiskit, Aer, and the data/plotting packages:
+
+```bash
+pip install qiskit qiskit-aer qiskit-ibm-runtime matplotlib pandas
+```
+
+## How to Reproduce the Results
+
+1. **Navigate to the project directory:**
+   ```bash
+   cd CAHSI-QuantumError
+   ```
+
+2. **Run multi-seed benchmark trials:**
+   ```bash
+   python testbenchmarking.py
+   ```
+
+3. **Generate the full `FakeFez` comparison CSV:**
+   ```bash
+   python benchmarking_csv.py
+   ```
+4. **Generate the comparison plots:**
+   ```bash
+   python matplot_benchmarks.py
+   ```
+
